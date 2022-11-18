@@ -1,0 +1,121 @@
+# Command Line Walkthrough
+
+### I'm unsure if everyone has had chance to look through the data structure in the RRG folder on blueBEAR. But I've tried to organise it so that this session goes as swimmingly as possible. So in the raw data folder, there's another folder called fastq_chr6 which has fastq files containing only reads from chromosome 6 for each of the samples in the dataset. I've done this just to speed things up a little. But for this, we can just pretend they're the full fastq that has been given to us by the sequencing department.
+
+### As I went over in the seminar last week, the firs step is to perform QC on the fastq files. So we'll create a script which will perform the fastqc reports for all of them together. 
+
+### As a side note, I've created the basic script structure for all scripts that we submit to slurm and this is where it doesn't work or we're all good. 
+### It might be best if everyone makes a copy of these scripts as we run through. so to do that we can run:
+`cp slurm.fastqc_head.sh slurm.fastqc_JLM.sh`
+
+<br/><br/>
+
+### So to write the fastq code. We first make the folder where we want to keep the output
+`mkdir -p ../../2_quality_control`
+
+### The -p is to create it if it hasn't already been created
+
+### We then need to use the fastqc function and run this on all the fastqc files. We can do this by using the find function, and name being fastq.gz. We then write this to an outdirectory what we've just made.
+
+
+`fastqc `find .. -name '*fastq.gz' -print` --outdir=../../2_quality_control`
+
+### We can actually also use something called multiqc on these files, which  I'm not going to run through, but it's a summary report of all the fastqc files.
+
+`multiqc ../../2_quality_control -o ../../2_quality_control`
+
+
+### I'm unsure how it'll go if everyone runs this at the same time. So perhaps we'll just get one person to send it to the cluster. You can do this by typing 
+`sbatch slurmSCRIPT`
+
+<br/><br/>
+### So when we open up a report, we get given some basic statistics. Such as the total number of sequences, and the sequence length. This sequence length important to note. We also get the number of sequences being marked as poor quality. This is 0, meaning that we don't really have to trim this data due to poor quality.
+
+###Checking the other bits, we immediately see some of the checks that FastQC does coming up as a fail. For instance:
+1. Per base sequence content. So this fails when one base is being represented a lot more than the others. In a completely random library, you would expect that the percentage of the various bases be equal, around 25%. Which they are after position 12 or so in this report, as the lines run parallel. This is flagging up because we have this mess at the start of the read. 
+	* This warning is normal for RNAsequencing, largely due to the way that the libraries are produced. And whilst it is inherent technical bias, it can't really be corrected for and doesn't seem to impact downstream analyses. So it's largely ignored
+2. We have some other modules which are failing also, sequence duplication levels, and overrepresented sequences. 
+	* Sequence duplication fails because certain reads are duplicated which are making up a significant proportion of the library.
+		*  This could mean a PCR error, meaning that certain sequences are being amplified at different rates than others. Or this could be an inherent biological difference, and there's no real way of knowing which. In RNA experiments, though. Transcripts will be present at different levels, and to observe the smaller expressed transcripts you have to oversequence to increase your chances of finding them. This'll cause duplication of the higher expressed ones. So this isn't usually too much of a worry, as we control for sequencing depth later on. It's also worth noting that we're only looking at Chromosome 6 here, so this will fail if non-unique sequences make up 50% of the total library, and we have a smaller library so it is more likely..
+	* Secondly, we're getting a flag for overrepresented sequences.
+		* In this table, we see the sequence, the number of those counts, the percentage it makes up in the library, and possible sources of contamination. Here, what we're looking for is any possible adaptor sequences, sources of ribosomal RNA which haven't been removed, or possible contaminants. Contaminants should get removed during the alignment anyway. But we'll check anyway. Again, these sequences are flagging because they make up a significant proportion of the library, and this is again probably because we're only looking at Chromosome 6. 
+	* If I load up an example for the whole fastq file, we see that only the first error exists in this data. From this report,  we have no need for adaptor or quality trimming tools. I have provided an example script for adaptor removal though
+
+
+<br/><br/>
+
+### Next job is to align. 
+
+### To align, we need to download the reference genome which you can grab from the GENCODE database, or ensembl, or UCSC. I've already done this because it can take a while, and subsetted it for just Chromosome 6. We also need the annotation matrix for this. This is a GTF or GFF file, which tells us where the genes lie. I've also downloaded and unzipped this and placed them both in the referencegenome folder.
+
+### So we'll move to the 4_mapping folder. 
+`cd ../../4_mapping`
+`ls`
+
+<br/><br/>
+### To speed up STAR, we can create an index. This is the same as a book. So the annotation and genome are put together to quickly tell us what gene is where in this genome file.
+### I've also created this for you, because it can take some time as well. I've provided a script here that runs this, but we won't run this script together. There are some important arguments that I'll discuss though. So I'll just open this up.
+### sjdbOverhang controls the splicing. So if you remember me talking about how STAR works, it does it with this seed searching where it looks for the maximum similarity in the genome and then again for the rest of the read. So this option asking us what the maximum possible stretch of a sequence that can be found in one seed is. As our read size from earlier is 49 bases, we can have a maximum of 48 on one side and one on the other side. So we have this argument as 48
+### This does mean you can't reuse indexes, though. If you have a new run with a different read length, you'll have to remake the index.
+### Another parameter which we have to scale, since we're using only chromosome 6 is the genomeSAindexNbases which defaults to 14. The rule for scaling is in the STAR manual, but based on this genome size we'll set it to 12.6
+
+<br/><br/>
+### Now we can actually align. So to do this, lets create another copy of the head file for ourselves. 
+
+`cp slurm.STAR_align_head.sh slurm.STAR_align_JLM.sh`
+
+<br/><br/>
+
+### Again, create the folder where we'll write the output to.
+`mkdir -p alignments_STAR`
+
+<br/><br/>
+
+### We can loop around our fastq files in the original directory.
+
+`for fastq in ../1_raw_data/fastq_chr6/*fastq.gz
+do echo $fastq
+STAR --genomeDir index_star_chr6 \
+      --readFilesIn $fastq \
+      --readFilesCommand zcat \
+      --outSAMtype BAM SortedByCoordinate \
+      --quantMode GeneCounts \
+      --outFileNamePrefix alignments_STAR/$(basename $fastq .fastq.gz)
+done`
+
+### We can then run STAR, where you specify the genomeDirectory or the index in our case. We then specify the files, which in our loop is this. The command is zcat because they're zipped. 
+
+### So I believe STAR incorporated SAMTools to count for it, which I never actually realised. But we can specify that we want BAM files sorted by coordinate as the SAM file type 
+### And output gene counts directly from STAR by setting the quantMode to GeneCounts.
+### Finally we can set the prefix of the name to be in the alignments_STAR folder. Using the basename of the file, the fastq loop action, and the .fastq.gz bit on the end.
+### Save that, and we can run it. But I guess lets not cause it might take some time. So just one person run it.
+
+### We don't actually have to wait for that to finish, as there is a directory called bam_chr6 that I did earlier. 
+
+`ls`
+
+<br/><br/>
+
+### Where we can see the output. We have bam files, but also these tab delimited file with all the gene counts.
+
+###If we look at one of these. 
+`more example.tab`
+
+
+### The 1st and 2nd column is all we need, so we can write a script to extract the counts from the tab files. 
+### Again make a copy of the head file for yourself
+`cp slurm.ExtractCounts_head.sh slurm.ExtractCounts_JLM.sh`
+
+### Then we can open it up.
+### Create the new place where we're going to write the counts. 
+`mkdir -p STAR_counts`
+
+### Then we're going to loop around the files with this suffix. And using cut we're going to select the first and second column. We're then going to remove the rows which have an underscore in them, which were the unmapped stuff and write that out. 
+`for i in bam_chr6/*ReadsPerGene.out.tab
+do echo $i
+# retrieve the first (gene name) and second column (raw reads for unstranded protocol)
+cut -f 1,2 $i | grep -v "_" > STAR_counts/$(basename $i ReadsPerGene.out.tab)_counts.txt
+done`
+
+
+### Once that is run, then we're ready for R. Which I hope you've all downloaded.

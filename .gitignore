@@ -1,3 +1,9 @@
+# System structure files
+.DS_Store
+
+# Project files
+*.Rproj
+
 # History files
 .Rhistory
 .Rapp.history
@@ -37,3 +43,15 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+
+# Specific folders
+scATACSeq_course/
+rnaseq_course/1_raw_data/
+rnaseq_course/differential_expression/
+rnaseq_course/differential_expression.zip
+rnaseq_course/mapping/
+rnaseq_course/reference_genome/
+
+
+
