@@ -5,24 +5,24 @@ library(DESeq2) # Then load up DESeq2
 # 1. IMPORTING THE DATA -----------------
 # Importing the meta data table
 ### To start with, we'll load in the meta data table, with header as true as this contains our column names
-sampletable <- read.table("sample_sheet_foxc1.txt", header = T, sep = "\t")
+`sampletable <- read.table("sample_sheet_foxc1.txt", header = T, sep = "\t")`
 
 ### We'll next use the filename column to add the SRA codes as the rownames. This is just so they're there for safe keeping.
-rownames(sampletable) <- gsub("_counts.txt", "", sampletable$FileName) 
+`rownames(sampletable) <- gsub("_counts.txt", "", sampletable$FileName)`
 
 ### A quick check the number of rows and columns
-nrow(sampletable) # Should be 10
-ncol(sampletable) # Should be 4
+`nrow(sampletable)` # Should be 10  
+`ncol(sampletable)` # Should be 4
 
 
 ### If we have a look at the top of the meta data, we see there are two parameters that could be of interest. 
 ### For this, lets say we're interested in the Condition.
-head(sampletable)
+`View(sampletable)`
 
 
 ### Our next move is to load in the count data from STAR into a DESeq2 object. These objects are like big lists, but instead of us having to make the separate bits, it has pre-made slots for us.
 se_star <- DESeqDataSetFromHTSeqCount(sampleTable = sampletable,
-                                      directory = "counts_STAR_selected",
+                                      directory = "STAR_counts",
                                       design = ~ Condition) 
 ### The design is the column we're interested in and is evaluate gene expression changes with respect to those different levels
 
@@ -80,6 +80,7 @@ metadata <- sampletable[,c("Differentiation", "Condition")]
 rownames(metadata) <- sampletable$SampleName
 pheatmap(rld_cor, annotation_col = metadata)
 
+### Based on these two metrics, we decide whether our data is good enough to go forward with. Ideally, we want our samples from the same group clustering together. 
 
 # 4. ANNOTATION -------------
 ### Once we've done the clustering stuff to check how nice the data looks. i.e. that the conditions largely stick together. We can do differential gene expression analysis.
@@ -124,7 +125,7 @@ head(annot)
 # 5. DIFFERENTIAL GENE EXPRESSION ANALYSIS -----------------
 ### Firstly, recreate the matrix. Just in case you had outliers or anything. Make sure to remove the raw file from the directory.
 se_star <- DESeqDataSetFromHTSeqCount(sampleTable = sampletable,
-                                      directory = "counts_STAR_selected",
+                                      directory = "STAR_counts",
                                       design = ~ Condition) 
 
 ### And if you do do this, don't forget to refilter the low genes
@@ -208,17 +209,30 @@ sigOE[sigOE$external_gene_name == "FOXC1", ]
 ### To generate these, we need a column in our results data indicating whether or not the gene is considered differentially expressed based on adjusted p-values
 de_symbols <- de_symbols[!is.na(de_symbols$padj),]
 res_tableKO_tb <- de_symbols %>% 
-  mutate(threshold_OE = padj < 0.05 & abs(log2FoldChange) >= 0.58)
-
+  mutate(threshold_KO = padj < 0.05 & abs(log2FoldChange) >= 0.58)
 
 
 
 ### We can then create a ggplot object, demonstrating this
 ggplot(res_tableKO_tb) +
-  geom_point(aes(x = log2FoldChange, y = -log10(padj), colour = threshold_OE)) +
+  geom_point(aes(x = log2FoldChange, y = -log10(padj), colour = threshold_KO)) +
   xlab("log2 fold change") + 
   ylab("-log10 adjusted p-value")
 
 ### Which isn't super fancy. But it demonstrates the point
+### You can then annotate the graph for the top 10 most differentially expressed genes 
+## Create a column to indicate which genes to label
+res_tableKO_tb <- res_tableKO_tb %>% arrange(padj) %>% mutate(genelabels = "") ### So we first arrange by adjusted P value and create a column for the gene names
+res_tableKO_tb$genelabels[1:10] <- res_tableKO_tb$external_gene_name[1:10] ### We then populate the genelabel column with the external gene name
 
+
+library(ggrepel)
+ggplot(res_tableKO_tb, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point(aes(colour = threshold_KO)) +
+  xlab("log2 fold change") + 
+  ylab("-log10 adjusted p-value") +
+  geom_text_repel(aes(label = genelabels))
+### And add this on to the end of the ggplot object
+
+### So this was for the Condition variable, what happens if we do it for the Differentiation status? 
 
